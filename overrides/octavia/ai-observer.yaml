@@ -1,0 +1,24 @@
+# Octavia (Caracal / 2024.1)
+# Grant ai_observer broad read-only visibility for troubleshooting.
+"system-reader": "(role:reader or role:ai_observer) and system_scope:all"
+"project-reader": "(role:reader or role:ai_observer) and project_id:%(project_id)s"
+
+# Standard Octavia read personas, including global/system-wide reads.
+"load-balancer:observer_and_owner": "(role:load-balancer_observer or role:ai_observer) and rule:project-reader"
+"load-balancer:global_observer": "role:load-balancer_global_observer or rule:system-reader or (role:ai_observer and system_scope:all)"
+"load-balancer:read": "rule:load-balancer:observer_and_owner or rule:load-balancer:global_observer or rule:load-balancer:member_and_owner or rule:load-balancer:admin"
+"load-balancer:read-global": "rule:load-balancer:global_observer or rule:load-balancer:admin"
+"load-balancer:read-quota": "rule:load-balancer:observer_and_owner or rule:load-balancer:global_observer or rule:load-balancer:member_and_owner or role:load-balancer_quota_admin or rule:load-balancer:admin"
+"load-balancer:read-quota-global": "rule:load-balancer:global_observer or role:load-balancer_quota_admin or rule:load-balancer:admin"
+
+# Admin-gated GET APIs that are useful for operations/debugging. Do not grant
+# ai_observer access to the corresponding write/delete/failover actions.
+"os_load-balancer_api:amphora:get_all": "rule:load-balancer:admin or role:ai_observer"
+"os_load-balancer_api:amphora:get_one": "rule:load-balancer:admin or role:ai_observer"
+"os_load-balancer_api:amphora:get_stats": "rule:load-balancer:admin or role:ai_observer"
+"os_load-balancer_api:flavor-profile:get_all": "rule:load-balancer:admin or role:ai_observer"
+"os_load-balancer_api:flavor-profile:get_one": "rule:load-balancer:admin or role:ai_observer"
+"os_load-balancer_api:availability-zone-profile:get_all": "rule:load-balancer:admin or role:ai_observer"
+"os_load-balancer_api:availability-zone-profile:get_one": "rule:load-balancer:admin or role:ai_observer"
+"os_load-balancer_api:provider-flavor:get_all": "rule:load-balancer:admin or role:ai_observer"
+"os_load-balancer_api:provider-availability-zone:get_all": "rule:load-balancer:admin or role:ai_observer"

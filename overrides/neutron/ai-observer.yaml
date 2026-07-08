@@ -34,6 +34,7 @@
 "update_subnet": "role:member and project_id:%(project_id)s"
 "delete_subnet": "role:member and project_id:%(project_id)s"
 "create_port": "rule:admin_only or rule:service_api or (role:member and project_id:%(project_id)s)"
+"create_port:binding:profile": "rule:service_api or rule:admin_only or (role:member and project_id:%(project_id)s)"
 "update_port": "rule:admin_only or rule:service_api or (role:member and project_id:%(project_id)s)"
 "delete_port": "rule:admin_only or rule:service_api or (role:member and project_id:%(project_id)s)"
 "create_router": "role:member and project_id:%(project_id)s"

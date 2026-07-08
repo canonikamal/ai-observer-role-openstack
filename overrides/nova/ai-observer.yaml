@@ -19,7 +19,7 @@
 # Project-scoped server reads: keep member/admin owners and add ai_observer
 # through the read-only project reader persona.
 "os_compute_api:servers:show": "rule:project_reader_or_admin or rule:project_member_api"
-"os_compute_api:os-console-output": "rule:project_reader_or_admin or rule:project_member_api"
+"os_compute_api:os-console-output": "role:reader or rule:project_reader_or_admin or rule:project_member_api"
 
 # Explicit compute mutation policies. These must never match ai_observer.
 "os_compute_api:servers:create": "rule:project_member_api or rule:admin_or_owner"

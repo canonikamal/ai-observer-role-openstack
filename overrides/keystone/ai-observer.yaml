@@ -1,0 +1,5 @@
+# Keystone (Yoga)
+# Allow the custom ai_observer role to satisfy reader-level personas.
+"system_reader_api": "(role:reader or role:ai_observer) and system_scope:all"
+"domain_reader_api": "(role:reader or role:ai_observer) and domain_id:%(target.domain.id)s"
+"project_reader_api": "(role:reader or role:ai_observer) and project_id:%(target.project.id)s"

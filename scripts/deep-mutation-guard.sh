@@ -95,9 +95,12 @@ AI_RC_FILE="$(mktemp "/tmp/${BASE}-ai-openrc.XXXXXX")"
 AI_SYSTEM_RC_FILE="$(mktemp "/tmp/${BASE}-ai-system-openrc.XXXXXX")"
 MEMBER_RC_FILE="$(mktemp "/tmp/${BASE}-member-openrc.XXXXXX")"
 FIXTURE_RC_FILE="$(mktemp "/tmp/${BASE}-fixture-openrc.XXXXXX")"
-IMAGE_FILE="$(mktemp "/tmp/${BASE}-image.XXXXXX")"
+LOCAL_WORK_DIR="$(mktemp -d "${BASE}-local.XXXXXX")"
+IMAGE_FILE="${LOCAL_WORK_DIR}/${BASE}-image.raw"
 printf 'ai observer deep mutation guard\n' > "${IMAGE_FILE}"
-chmod 600 "${AI_RC_FILE}" "${AI_SYSTEM_RC_FILE}" "${MEMBER_RC_FILE}" "${FIXTURE_RC_FILE}" "${IMAGE_FILE}"
+chmod 600 "${AI_RC_FILE}" "${AI_SYSTEM_RC_FILE}" "${MEMBER_RC_FILE}" "${FIXTURE_RC_FILE}"
+chmod 755 "${LOCAL_WORK_DIR}"
+chmod 644 "${IMAGE_FILE}"
 log_image_seed="Local image seed file: ${IMAGE_FILE}"
 
 PROJECT_ID=""
@@ -197,6 +200,19 @@ write_unset() {
   for name in "$@"; do
     printf 'unset %s\n' "${name}" >> "${file}"
   done
+}
+
+write_password_auth_safety() {
+  local file="$1"
+  write_export "${file}" OS_AUTH_TYPE "password"
+  write_unset "${file}" \
+    OS_TOKEN \
+    OS_APPLICATION_CREDENTIAL_ID \
+    OS_APPLICATION_CREDENTIAL_NAME \
+    OS_APPLICATION_CREDENTIAL_SECRET \
+    OS_ACCESS_KEY \
+    OS_SECRET_KEY \
+    OS_TRUST_ID
 }
 
 is_policy_denied() {
@@ -373,8 +389,9 @@ cleanup() {
   if [[ -n "${PROJECT_ID}" ]]; then
     cleanup_one "${ADMIN_RC}" "test project ${PROJECT_NAME} ${PROJECT_ID}" openstack project delete "${PROJECT_ID}"
   fi
-  echo "CLEANUP local temp files: ${AI_RC_FILE}, ${AI_SYSTEM_RC_FILE}, ${MEMBER_RC_FILE}, ${FIXTURE_RC_FILE}, ${IMAGE_FILE}"
-  rm -f "${AI_RC_FILE}" "${AI_SYSTEM_RC_FILE}" "${MEMBER_RC_FILE}" "${FIXTURE_RC_FILE}" "${IMAGE_FILE}"
+  echo "CLEANUP local temp files: ${AI_RC_FILE}, ${AI_SYSTEM_RC_FILE}, ${MEMBER_RC_FILE}, ${FIXTURE_RC_FILE}, ${LOCAL_WORK_DIR}"
+  rm -f "${AI_RC_FILE}" "${AI_SYSTEM_RC_FILE}" "${MEMBER_RC_FILE}" "${FIXTURE_RC_FILE}"
+  rm -rf "${LOCAL_WORK_DIR}"
   echo "CLEANUP OK local temp files"
 }
 trap cleanup EXIT
@@ -574,7 +591,8 @@ write_export "${AI_RC_FILE}" OS_INTERFACE "$(admin_env OS_INTERFACE)"
 write_export "${AI_RC_FILE}" OS_REGION_NAME "$(admin_env OS_REGION_NAME)"
 write_export "${AI_RC_FILE}" OS_CACERT "$(admin_env OS_CACERT)"
 write_export "${AI_RC_FILE}" OS_INSECURE "$(admin_env OS_INSECURE)"
-write_unset "${AI_RC_FILE}" OS_SYSTEM_SCOPE OS_PROJECT_NAME OS_PROJECT_DOMAIN_NAME OS_PROJECT_DOMAIN_ID
+write_password_auth_safety "${AI_RC_FILE}"
+write_unset "${AI_RC_FILE}" OS_SYSTEM_SCOPE OS_PROJECT_NAME OS_PROJECT_DOMAIN_NAME OS_PROJECT_DOMAIN_ID OS_TENANT_NAME OS_TENANT_ID OS_DOMAIN_NAME OS_DOMAIN_ID
 
 write_export "${AI_SYSTEM_RC_FILE}" OS_AUTH_URL "${AUTH_URL}"
 write_export "${AI_SYSTEM_RC_FILE}" OS_USERNAME "${USER_NAME}"
@@ -586,7 +604,8 @@ write_export "${AI_SYSTEM_RC_FILE}" OS_INTERFACE "$(admin_env OS_INTERFACE)"
 write_export "${AI_SYSTEM_RC_FILE}" OS_REGION_NAME "$(admin_env OS_REGION_NAME)"
 write_export "${AI_SYSTEM_RC_FILE}" OS_CACERT "$(admin_env OS_CACERT)"
 write_export "${AI_SYSTEM_RC_FILE}" OS_INSECURE "$(admin_env OS_INSECURE)"
-write_unset "${AI_SYSTEM_RC_FILE}" OS_PROJECT_ID OS_PROJECT_NAME OS_PROJECT_DOMAIN_NAME OS_PROJECT_DOMAIN_ID
+write_password_auth_safety "${AI_SYSTEM_RC_FILE}"
+write_unset "${AI_SYSTEM_RC_FILE}" OS_PROJECT_ID OS_PROJECT_NAME OS_PROJECT_DOMAIN_NAME OS_PROJECT_DOMAIN_ID OS_TENANT_NAME OS_TENANT_ID OS_DOMAIN_NAME OS_DOMAIN_ID
 
 write_export "${MEMBER_RC_FILE}" OS_AUTH_URL "${AUTH_URL}"
 write_export "${MEMBER_RC_FILE}" OS_USERNAME "${MEMBER_USER_NAME}"
@@ -598,7 +617,8 @@ write_export "${MEMBER_RC_FILE}" OS_INTERFACE "$(admin_env OS_INTERFACE)"
 write_export "${MEMBER_RC_FILE}" OS_REGION_NAME "$(admin_env OS_REGION_NAME)"
 write_export "${MEMBER_RC_FILE}" OS_CACERT "$(admin_env OS_CACERT)"
 write_export "${MEMBER_RC_FILE}" OS_INSECURE "$(admin_env OS_INSECURE)"
-write_unset "${MEMBER_RC_FILE}" OS_SYSTEM_SCOPE OS_PROJECT_NAME OS_PROJECT_DOMAIN_NAME OS_PROJECT_DOMAIN_ID
+write_password_auth_safety "${MEMBER_RC_FILE}"
+write_unset "${MEMBER_RC_FILE}" OS_SYSTEM_SCOPE OS_PROJECT_NAME OS_PROJECT_DOMAIN_NAME OS_PROJECT_DOMAIN_ID OS_TENANT_NAME OS_TENANT_ID OS_DOMAIN_NAME OS_DOMAIN_ID
 
 cp "${ADMIN_RC}" "${FIXTURE_RC_FILE}"
 {
@@ -631,6 +651,9 @@ echo "== Base fixture setup =="
 require_admin "flavor create" openstack flavor create --ram 64 --disk 1 --vcpus 1 -f value -c id "${FLAVOR_NAME}"
 FLAVOR_ID="$(head -n 1 <<<"${RUN_OUTPUT}")"
 log_created "base flavor" "${FLAVOR_NAME}" "${FLAVOR_ID}"
+if [[ ! -r "${IMAGE_FILE}" ]]; then
+  die_setup "local image seed file is not readable: ${IMAGE_FILE}"
+fi
 require_admin "image create" openstack image create --disk-format raw --container-format bare --file "${IMAGE_FILE}" --public -f value -c id "${IMAGE_NAME}"
 IMAGE_ID="$(head -n 1 <<<"${RUN_OUTPUT}")"
 log_created "base image" "${IMAGE_NAME}" "${IMAGE_ID}"
@@ -850,3 +873,4 @@ if (( inconclusive > 0 )); then
 fi
 
 exit 0
+

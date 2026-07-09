@@ -58,11 +58,12 @@ run_probe project "${PROJECT_RC}" "pool list" openstack loadbalancer pool list
 run_probe project "${PROJECT_RC}" "provider list" openstack loadbalancer provider list
 
 run_probe system "${SYSTEM_RC}" "token issue" openstack token issue
-run_probe system "${SYSTEM_RC}" "server list all projects" openstack server list --all-projects
-run_probe system "${SYSTEM_RC}" "hypervisor list" openstack hypervisor list
-run_probe system "${SYSTEM_RC}" "compute service list" openstack compute service list
 run_probe system "${SYSTEM_RC}" "volume list all projects" openstack volume list --all-projects
 run_probe system "${SYSTEM_RC}" "volume service list" openstack volume service list
+
+run_probe nova-project "${PROJECT_RC}" "server list all projects" openstack server list --all-projects
+run_probe nova-project "${PROJECT_RC}" "hypervisor list" openstack hypervisor list
+run_probe nova-project "${PROJECT_RC}" "compute service list" openstack compute service list
 
 echo "Read smoke summary: ${passed} passed, ${skipped} skipped, ${failed} failed."
 

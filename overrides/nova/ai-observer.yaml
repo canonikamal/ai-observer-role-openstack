@@ -11,6 +11,7 @@
 "project_reader_api": "(role:reader or role:ai_observer) and project_id:%(project_id)s"
 "project_reader_or_admin": "rule:project_reader_api or rule:context_is_admin"
 "system_reader_api": "((role:reader or role:ai_observer) and system_scope:all) or rule:context_is_admin"
+"deployment_reader_api": "(role:ai_observer and is_admin_project:True) or rule:context_is_admin"
 
 # Preserve the pre-existing nova-cloud-controller policy override found in the
 # target environment.
@@ -18,11 +19,11 @@
 
 # Project-scoped server reads: keep member/admin owners and add ai_observer
 # through the read-only project reader persona.
-"os_compute_api:servers": "rule:system_reader_api or rule:project_reader_or_admin or rule:project_member_api"
-"os_compute_api:servers:index": "rule:system_reader_api or rule:project_reader_or_admin or rule:project_member_api"
-"os_compute_api:servers:detail": "rule:system_reader_api or rule:project_reader_or_admin or rule:project_member_api"
-"os_compute_api:servers:show": "rule:system_reader_api or rule:project_reader_or_admin or rule:project_member_api"
-"os_compute_api:os-console-output": "role:reader or rule:project_reader_or_admin or rule:project_member_api"
+"os_compute_api:servers": "rule:deployment_reader_api or rule:system_reader_api or rule:project_reader_or_admin or rule:project_member_api"
+"os_compute_api:servers:index": "rule:deployment_reader_api or rule:system_reader_api or rule:project_reader_or_admin or rule:project_member_api"
+"os_compute_api:servers:detail": "rule:deployment_reader_api or rule:system_reader_api or rule:project_reader_or_admin or rule:project_member_api"
+"os_compute_api:servers:show": "rule:deployment_reader_api or rule:system_reader_api or rule:project_reader_or_admin or rule:project_member_api"
+"os_compute_api:os-console-output": "rule:project_reader_or_admin or rule:project_member_api"
 
 # Explicit compute mutation policies. These must never match ai_observer.
 "os_compute_api:servers:create": "rule:project_member_api or rule:admin_or_owner"
@@ -47,20 +48,22 @@
 "os_compute_api:servers:stop": "rule:project_member_api or rule:admin_or_owner"
 "os_compute_api:servers:trigger_crash_dump": "rule:project_member_api or rule:admin_or_owner"
 
-# Optional extra read access for investigation on system-scoped resources.
-"os_compute_api:os-services": "rule:system_reader_api"
-"os_compute_api:servers:index:get_all_tenants": "rule:system_reader_api"
-"os_compute_api:servers:detail:get_all_tenants": "rule:system_reader_api"
-"os_compute_api:os-services:list": "rule:system_reader_api"
-"os_compute_api:os-hypervisors": "rule:system_reader_api"
-"os_compute_api:os-hypervisors:list": "rule:system_reader_api"
-"os_compute_api:os-hypervisors:list-detail": "rule:system_reader_api"
-"os_compute_api:os-hypervisors:statistics": "rule:system_reader_api"
-"os_compute_api:os-hypervisors:show": "rule:system_reader_api"
-"os_compute_api:os-hypervisors:uptime": "rule:system_reader_api"
-"os_compute_api:os-hypervisors:search": "rule:system_reader_api"
-"os_compute_api:os-hypervisors:servers": "rule:system_reader_api"
-"os_compute_api:os-aggregates:index": "rule:system_reader_api"
-"os_compute_api:os-aggregates:show": "rule:system_reader_api"
-"os_compute_api:os-instance-usage-audit-log:list": "rule:system_reader_api"
-"os_compute_api:os-instance-usage-audit-log:show": "rule:system_reader_api"
+# Deployment-wide Nova reads. In Caracal these APIs are still project-scoped
+# policy checks, so ai_observer uses an admin-project-scoped token here rather
+# than a system-scoped token.
+"os_compute_api:os-services": "rule:deployment_reader_api"
+"os_compute_api:servers:index:get_all_tenants": "rule:deployment_reader_api"
+"os_compute_api:servers:detail:get_all_tenants": "rule:deployment_reader_api"
+"os_compute_api:os-services:list": "rule:deployment_reader_api"
+"os_compute_api:os-hypervisors": "rule:deployment_reader_api"
+"os_compute_api:os-hypervisors:list": "rule:deployment_reader_api"
+"os_compute_api:os-hypervisors:list-detail": "rule:deployment_reader_api"
+"os_compute_api:os-hypervisors:statistics": "rule:deployment_reader_api"
+"os_compute_api:os-hypervisors:show": "rule:deployment_reader_api"
+"os_compute_api:os-hypervisors:uptime": "rule:deployment_reader_api"
+"os_compute_api:os-hypervisors:search": "rule:deployment_reader_api"
+"os_compute_api:os-hypervisors:servers": "rule:deployment_reader_api"
+"os_compute_api:os-aggregates:index": "rule:deployment_reader_api"
+"os_compute_api:os-aggregates:show": "rule:deployment_reader_api"
+"os_compute_api:os-instance-usage-audit-log:list": "rule:deployment_reader_api"
+"os_compute_api:os-instance-usage-audit-log:show": "rule:deployment_reader_api"

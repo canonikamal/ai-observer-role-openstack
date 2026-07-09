@@ -144,9 +144,10 @@ export OS_AUTH_URL=https://keystone.example.com:5000/v3
 export OS_USERNAME=ai-observer
 export OS_PASSWORD=CHANGE_ME
 export OS_USER_DOMAIN_NAME=Default
-export OS_PROJECT_NAME=admin
-export OS_PROJECT_DOMAIN_NAME=Default
+export OS_PROJECT_ID=<admin-project-id-used-by-nova-policy>
 export OS_IDENTITY_API_VERSION=3
+unset OS_PROJECT_NAME
+unset OS_PROJECT_DOMAIN_NAME
 unset OS_SYSTEM_SCOPE
 ```
 
@@ -164,7 +165,8 @@ unset OS_PROJECT_NAME
 unset OS_PROJECT_DOMAIN_NAME
 ```
 
-Use project scope for project-visible resources:
+Use project scope for project-visible resources and Nova deployment-wide reads
+that are still project-scoped by Nova policy:
 
 ```bash
 source ai-observer-openrc
@@ -172,6 +174,9 @@ openstack token issue
 openstack network list
 openstack image list
 openstack loadbalancer list
+openstack server list --all-projects
+openstack hypervisor list
+openstack compute service list
 ```
 
 Use system scope for services and APIs that support system-scoped reads:
@@ -185,6 +190,18 @@ openstack volume list --all-projects
 Some Nova Caracal deployment-wide read APIs are still project-scoped by policy.
 For those APIs, use an admin-project-scoped token combined with the read-only
 `ai_observer` policy rules instead of assigning the user the `admin` role.
+In environments with multiple projects named `admin`, use `OS_PROJECT_ID`
+instead of `OS_PROJECT_NAME` to avoid selecting the wrong project.
+
+Example Nova deployment-wide reads:
+
+```bash
+source ai-observer-openrc
+openstack token issue
+openstack server list --all-projects
+openstack hypervisor list
+openstack compute service list
+```
 
 ## Validation
 

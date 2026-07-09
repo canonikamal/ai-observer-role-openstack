@@ -81,12 +81,7 @@ juju config octavia use-policyd-override=true
 Optional but recommended checks:
 
 ```bash
-juju config keystone use-policyd-override
-juju config nova-cloud-controller use-policyd-override
-juju config neutron-api use-policyd-override
-juju config cinder use-policyd-override
-juju config glance use-policyd-override
-juju config octavia use-policyd-override
+for app in keystone nova-cloud-controller neutron-api cinder glance octavia; do printf "%-24s " "$app"; juju config "$app" use-policyd-override; done
 ```
 
 ## 4) Create an AI user and grant read role assignments
@@ -95,20 +90,20 @@ To cover both system-scoped and project-scoped read APIs, grant both scopes.
 
 ```bash
 # Example user creation
-openstack user create --password 'CHANGE_ME' ai-agent
+openstack user create --password 'CHANGE_ME' agent_tony_reader
 
 # System-scope read visibility
-openstack role add --user-domain default --user ai-agent --system all ai_observer
+openstack role add --user-domain default --user agent_tony_reader --system all ai_observer
 
 # Project-scope read visibility (repeat for each project that must be visible)
-openstack role add --user-domain default --user ai-agent --project admin ai_observer
+openstack role add --user-domain default --user agent_tony_reader --project admin ai_observer
 ```
 
 If you need visibility into all projects, automate project assignments:
 
 ```bash
 for project in $(openstack project list -f value -c ID); do
-  openstack role add --user-domain default --user ai-agent --project "$project" ai_observer || true
+  openstack role add --user-domain default --user agent_tony_reader --project "$project" ai_observer || true
 done
 ```
 

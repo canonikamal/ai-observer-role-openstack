@@ -7,7 +7,7 @@
 "system_admin_or_project_member": "(role:admin and system_scope:all) or (role:member and project_id:%(project_id)s)"
 "system_admin_or_project_admin": "(role:admin and system_scope:all) or (role:admin and project_id:%(project_id)s)"
 "system_admin_only": "role:admin and system_scope:all"
-"xena_system_admin_or_project_reader": "role:admin or ((role:reader or role:ai_observer) and project_id:%(project_id)s)"
+"xena_system_admin_or_project_reader": "role:admin or ((role:reader or role:ai_observer) and system_scope:all) or ((role:reader or role:ai_observer) and project_id:%(project_id)s)"
 "system_reader_or_project_reader": "((role:reader or role:ai_observer) and system_scope:all) or ((role:reader or role:ai_observer) and project_id:%(project_id)s)"
 
 # Explicit mutation policies. These must never match ai_observer.

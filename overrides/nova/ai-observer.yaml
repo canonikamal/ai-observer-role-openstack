@@ -18,7 +18,10 @@
 
 # Project-scoped server reads: keep member/admin owners and add ai_observer
 # through the read-only project reader persona.
-"os_compute_api:servers:show": "rule:project_reader_or_admin or rule:project_member_api"
+"os_compute_api:servers": "rule:system_reader_api or rule:project_reader_or_admin or rule:project_member_api"
+"os_compute_api:servers:index": "rule:system_reader_api or rule:project_reader_or_admin or rule:project_member_api"
+"os_compute_api:servers:detail": "rule:system_reader_api or rule:project_reader_or_admin or rule:project_member_api"
+"os_compute_api:servers:show": "rule:system_reader_api or rule:project_reader_or_admin or rule:project_member_api"
 "os_compute_api:os-console-output": "role:reader or rule:project_reader_or_admin or rule:project_member_api"
 
 # Explicit compute mutation policies. These must never match ai_observer.
@@ -45,9 +48,11 @@
 "os_compute_api:servers:trigger_crash_dump": "rule:project_member_api or rule:admin_or_owner"
 
 # Optional extra read access for investigation on system-scoped resources.
+"os_compute_api:os-services": "rule:system_reader_api"
 "os_compute_api:servers:index:get_all_tenants": "rule:system_reader_api"
 "os_compute_api:servers:detail:get_all_tenants": "rule:system_reader_api"
 "os_compute_api:os-services:list": "rule:system_reader_api"
+"os_compute_api:os-hypervisors": "rule:system_reader_api"
 "os_compute_api:os-hypervisors:list": "rule:system_reader_api"
 "os_compute_api:os-hypervisors:list-detail": "rule:system_reader_api"
 "os_compute_api:os-hypervisors:statistics": "rule:system_reader_api"

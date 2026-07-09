@@ -11,6 +11,16 @@
 "load-balancer:read-quota": "rule:load-balancer:observer_and_owner or rule:load-balancer:global_observer or rule:load-balancer:member_and_owner or role:load-balancer_quota_admin or rule:load-balancer:admin"
 "load-balancer:read-quota-global": "rule:load-balancer:global_observer or role:load-balancer_quota_admin or rule:load-balancer:admin"
 
+# Concrete project-scoped list/show APIs used by openstackclient.
+"os_load-balancer_api:loadbalancer:get_all": "rule:load-balancer:read"
+"os_load-balancer_api:loadbalancer:get_one": "rule:load-balancer:read"
+"os_load-balancer_api:listener:get_all": "rule:load-balancer:read"
+"os_load-balancer_api:listener:get_one": "rule:load-balancer:read"
+"os_load-balancer_api:pool:get_all": "rule:load-balancer:read"
+"os_load-balancer_api:pool:get_one": "rule:load-balancer:read"
+"os_load-balancer_api:provider:get_all": "rule:load-balancer:read-global or role:ai_observer"
+"os_load-balancer_api:provider:get_one": "rule:load-balancer:read-global or role:ai_observer"
+
 # Admin-gated GET APIs that are useful for operations/debugging. Do not grant
 # ai_observer access to the corresponding write/delete/failover actions.
 "os_load-balancer_api:amphora:get_all": "rule:load-balancer:admin or role:ai_observer"

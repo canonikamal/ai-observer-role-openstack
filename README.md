@@ -270,10 +270,10 @@ use standard `member` or `admin` assignments on their projects.
 
 ## References
 
-- Keystone Caracal default roles and scope model
-- Nova Caracal policy reference
-- Neutron Caracal policy reference
-- Cinder Caracal policy reference
-- Glance Caracal policy reference
-- Octavia Caracal policy reference
-- Charmed OpenStack charm documentation for `use-policyd-override`
+- [Keystone Caracal default roles and scope model](https://docs.openstack.org/keystone/2024.1/admin/service-api-protection.html)
+- [Nova Caracal policy reference](https://docs.openstack.org/nova/2024.1/configuration/policy.html)
+- [Neutron Caracal policy reference](https://docs.openstack.org/neutron/2024.1/configuration/policy.html)
+- [Cinder Caracal policy reference](https://docs.openstack.org/cinder/2024.1/configuration/block-storage/policy.html)
+- [Glance Caracal policy source](https://opendev.org/openstack/glance/src/branch/stable/2024.1/glance/common/policies)
+- [Octavia Caracal policy source](https://opendev.org/openstack/octavia/src/branch/stable/2024.1/octavia/policies)
+- [Charmhub nova-cloud-controller configuration for `use-policyd-override`](https://charmhub.io/nova-cloud-controller/configurations#use-policyd-override)

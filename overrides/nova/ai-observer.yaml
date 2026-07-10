@@ -39,6 +39,10 @@
 "os_compute_api:servers:trigger_crash_dump": "rule:admin_or_owner or rule:project_member_api"
 "os_compute_api:servers:show": "rule:project_reader_or_admin or rule:project_member_api"
 "os_compute_api:os-console-output": "rule:project_reader_or_admin or rule:project_member_api"
+"os_compute_api:os-quota-sets:update": "rule:admin_or_owner or rule:project_admin_api"
+"os_compute_api:os-quota-sets:delete": "rule:admin_or_owner or rule:project_admin_api"
+"os_compute_api:os-server-diagnostics": "rule:admin_or_owner or rule:project_admin_api"
+"os_compute_api:os-server-groups:index:all_projects": "rule:admin_or_owner or rule:project_admin_api"
 
 # Optional extra read access for investigation on system-scoped resources.
 "os_compute_api:servers:index:get_all_tenants": "rule:system_reader_api"

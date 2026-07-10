@@ -47,6 +47,12 @@
 "os_compute_api:servers:start": "rule:project_member_api or rule:admin_or_owner"
 "os_compute_api:servers:stop": "rule:project_member_api or rule:admin_or_owner"
 "os_compute_api:servers:trigger_crash_dump": "rule:project_member_api or rule:admin_or_owner"
+"os_compute_api:servers:show": "rule:project_reader_or_admin or rule:project_member_api"
+"os_compute_api:os-console-output": "rule:project_reader_or_admin or rule:project_member_api"
+"os_compute_api:os-quota-sets:update": "rule:admin_or_owner or rule:project_admin_api"
+"os_compute_api:os-quota-sets:delete": "rule:admin_or_owner or rule:project_admin_api"
+"os_compute_api:os-server-diagnostics": "rule:admin_or_owner or rule:project_admin_api"
+"os_compute_api:os-server-groups:index:all_projects": "rule:admin_or_owner or rule:project_admin_api"
 
 # Deployment-wide Nova reads. In Caracal these APIs are still project-scoped
 # policy checks, so ai_observer uses an admin-project-scoped token here rather

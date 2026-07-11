@@ -10,27 +10,6 @@
 "xena_system_admin_or_project_reader": "role:admin or ((role:reader or role:ai_observer) and system_scope:all) or ((role:reader or role:ai_observer) and project_id:%(project_id)s)"
 "system_reader_or_project_reader": "((role:reader or role:ai_observer) and system_scope:all) or ((role:reader or role:ai_observer) and project_id:%(project_id)s)"
 
-# Explicit mutation policies. These must never match ai_observer.
-"volume:create": "rule:system_admin_or_project_member"
-"volume:create_from_image": "rule:system_admin_or_project_member"
-"volume:multiattach": "rule:system_admin_or_project_member"
-"volume:update": "rule:system_admin_or_project_member"
-"volume:delete": "rule:system_admin_or_project_member"
-"volume:create_snapshot": "rule:system_admin_or_project_member"
-"volume:update_snapshot": "rule:system_admin_or_project_member"
-"volume:delete_snapshot": "rule:system_admin_or_project_member"
-"volume:create_volume_metadata": "rule:system_admin_or_project_member"
-"volume:update_volume_metadata": "rule:system_admin_or_project_member"
-"volume:delete_volume_metadata": "rule:system_admin_or_project_member"
-"volume:update_readonly_flag": "rule:system_admin_or_project_member"
-"volume:create_transfer": "rule:system_admin_or_project_member"
-"volume:delete_transfer": "rule:system_admin_or_project_member"
-"volume_extension:volume_actions:attach": "rule:system_admin_or_project_member"
-"volume_extension:volume_actions:detach": "rule:system_admin_or_project_member"
-"volume_extension:volume_actions:reserve": "rule:system_admin_or_project_member"
-"volume_extension:volume_actions:unreserve": "rule:system_admin_or_project_member"
-"volume_extension:volume_actions:upload_image": "rule:system_admin_or_project_member"
-
 # Extra read-only admin-gated APIs for investigation.
 "volume_extension:services:index": "role:admin or role:ai_observer"
 "scheduler_extension:scheduler_stats:get_pools": "role:admin or role:ai_observer"

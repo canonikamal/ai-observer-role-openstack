@@ -40,3 +40,8 @@
 "get_default_security_group_rule": "role:reader or role:ai_observer"
 "get_flavor": "role:reader or role:ai_observer"
 "get_service_profile": "rule:admin_only or role:ai_observer"
+
+# Allow tenant members to manage binding profiles for self-service SR-IOV /
+# hardware-offload port workflows while keeping ai_observer read-only.
+"create_port:binding:profile": "rule:admin_only or (role:member and project_id:%(project_id)s) or rule:service_api"
+"update_port:binding:profile": "rule:admin_only or (role:member and project_id:%(project_id)s) or rule:service_api"

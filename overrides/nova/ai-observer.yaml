@@ -43,6 +43,12 @@
 "os_compute_api:os-quota-sets:delete": "rule:admin_or_owner or rule:project_admin_api"
 "os_compute_api:os-server-diagnostics": "rule:admin_or_owner or rule:project_admin_api"
 "os_compute_api:os-server-groups:index:all_projects": "rule:admin_or_owner or rule:project_admin_api"
+"os_compute_api:os-volumes-attachments:delete": "rule:admin_or_owner or rule:project_admin_api"
+"os_compute_api:os-volumes-attachments:update": "rule:admin_or_owner or rule:project_admin_api"
+"os_compute_api:os-volumes-attachments:create": "rule:admin_or_owner or rule:project_admin_api"
+"os_compute_api:os-volumes-attachments:index": "rule:admin_or_owner or rule:project_admin_api"
+"os_compute_api:os-volumes-attachments:show": "rule:admin_or_owner or rule:project_admin_api"
+"os_compute_api:os-volumes-attachments:swap": "rule:admin_or_owner or rule:project_admin_api"
 
 # Optional extra read access for investigation on system-scoped resources.
 "os_compute_api:servers:index:get_all_tenants": "rule:system_reader_api"

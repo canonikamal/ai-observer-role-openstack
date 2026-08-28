@@ -27,6 +27,52 @@ WRITE_KEY_RE = re.compile(
 )
 READ_WORD_RE = re.compile(r"(^|:|-|_)(get|list|read|show|download|index)($|:|-|_)", re.IGNORECASE)
 FORBIDDEN_EMPTY_VALUES = {"", "@"}
+CINDER_PROJECT_MUTATIONS = (
+    "volume:create",
+    "volume:create_from_image",
+    "volume:multiattach",
+    "volume:update",
+    "volume:delete",
+    "volume:create_snapshot",
+    "volume:update_snapshot",
+    "volume:delete_snapshot",
+    "volume:update_snapshot_metadata",
+    "volume:delete_snapshot_metadata",
+    "volume:create_volume_metadata",
+    "volume:update_volume_metadata",
+    "volume:delete_volume_metadata",
+    "volume:update_readonly_flag",
+    "volume:create_transfer",
+    "volume:accept_transfer",
+    "volume:delete_transfer",
+    "volume_extension:volume_actions:attach",
+    "volume_extension:volume_actions:detach",
+    "volume_extension:volume_actions:reserve",
+    "volume_extension:volume_actions:unreserve",
+    "volume_extension:volume_actions:upload_image",
+    "volume:attachment_create",
+    "volume:attachment_update",
+    "volume:attachment_delete",
+    "volume:attachment_complete",
+    "volume:multiattach_bootable_volume",
+)
+CINDER_ADMIN_READS = (
+    "volume_extension:default_get",
+    "volume_extension:default_get_all",
+    "group:group_types_specs:get",
+    "group:group_types_specs:get_all",
+    "volume_extension:types_extra_specs:read_sensitive",
+)
+CINDER_HARD_ADMIN_READS = (
+    "volume_extension:services:index",
+    "scheduler_extension:scheduler_stats:get_pools",
+    "volume_extension:capabilities",
+    "volume_extension:qos_specs_manage:get",
+    "volume_extension:qos_specs_manage:get_all",
+)
+CINDER_FILTERED_READS = (
+    "group:access_group_types_specs",
+)
 
 
 class CheckResult:
@@ -97,9 +143,50 @@ def check_policy_file(service: str, path: Path, result: CheckResult) -> None:
             result.error(f"{path}: Neutron owner rule must require role:member and project scope")
 
     if service == "cinder":
-        member = policy.get("xena_system_admin_or_project_member", "")
-        if "role:member" not in member or "role:ai_observer" in member:
-            result.error(f"{path}: Cinder member rule must not include ai_observer")
+        if value_mentions_ai(policy.get("volume_extension:hosts", "")):
+            result.error(
+                f"{path}: Cinder 'volume_extension:hosts' covers both GET and PUT "
+                "and must not grant ai_observer"
+            )
+
+        for alias in ("admin_or_owner", "xena_system_admin_or_project_member"):
+            value = policy.get(alias, "")
+            if "role:member" not in value or "project_id:%(project_id)s" not in value:
+                result.error(
+                    f"{path}: Cinder alias {alias!r} must require member and project scope"
+                )
+            if value_mentions_ai(value):
+                result.error(f"{path}: Cinder alias {alias!r} must not include ai_observer")
+
+        for key in CINDER_PROJECT_MUTATIONS:
+            value = policy.get(key, "")
+            if value != "rule:xena_system_admin_or_project_member":
+                result.error(
+                    f"{path}: Cinder mutation policy {key!r} must explicitly use "
+                    "'rule:xena_system_admin_or_project_member'"
+                )
+
+        for key in CINDER_ADMIN_READS:
+            value = policy.get(key, "")
+            if value != "role:admin or role:ai_observer":
+                result.error(
+                    f"{path}: Cinder admin read policy {key!r} must preserve admin "
+                    "and grant only ai_observer"
+                )
+
+        for key in CINDER_HARD_ADMIN_READS:
+            if value_mentions_ai(policy.get(key, "")):
+                result.error(
+                    f"{path}: Cinder hard-admin read {key!r} must not grant "
+                    "ai_observer because Caracal rejects it below policy authorization"
+                )
+
+        for key in CINDER_FILTERED_READS:
+            if value_mentions_ai(policy.get(key, "")):
+                result.error(
+                    f"{path}: Cinder aggregate-field read {key!r} must not grant "
+                    "ai_observer because Caracal still filters the sensitive field"
+                )
 
     if service == "glance":
         for key in ("add_image", "modify_image", "delete_image", "upload_image"):

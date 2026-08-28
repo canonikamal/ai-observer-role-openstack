@@ -18,8 +18,10 @@ The script creates a disposable project, AI test user, non-AI member test user,
 AI project-scoped RC, AI system-scoped RC, member scoped RC, fixture scoped RC,
 and valid image/flavor/network/subnet fixtures. It then attempts create, update,
 and delete operations with the AI user's ai_observer role and with the non-AI
-member role. Every AI mutation probe must be denied by policy, and normal member
-mutations must remain allowed.
+member and project-admin roles. Extended Cinder probes also cover snapshots,
+metadata, image-backed volumes, transfers, attachments, action APIs, and
+admin-gated reads. Every AI mutation probe must be denied by policy, and normal
+member/admin mutations must remain allowed.
 EOF
 }
 
@@ -75,6 +77,7 @@ if [[ ! -r "${ADMIN_RC}" ]]; then
   exit 2
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_ID="$(date +%Y%m%d%H%M%S)-$$"
 BASE="${PREFIX}-${RUN_ID}"
 PROJECT_NAME="${BASE}-project"
@@ -133,6 +136,34 @@ NEUTRON_DELETE_NETWORK="${BASE}-net-delete"
 CINDER_CREATE_VOLUME="${BASE}-vol-create"
 CINDER_UPDATE_VOLUME="${BASE}-vol-update"
 CINDER_DELETE_VOLUME="${BASE}-vol-delete"
+CINDER_EXTENDED_VOLUME="${BASE}-vol-extended"
+CINDER_EXTENDED_VOLUME_ID=""
+CINDER_FROM_IMAGE_VOLUME="${BASE}-vol-from-image"
+CINDER_SNAPSHOT="${BASE}-snapshot"
+CINDER_TRANSFER_VOLUME="${BASE}-vol-transfer"
+CINDER_TRANSFER_ID=""
+CINDER_AI_TRANSFER_ID=""
+CINDER_TRANSFER_AUTH_KEY=""
+CINDER_ATTACHMENT_VOLUME="${BASE}-vol-attachment"
+CINDER_ATTACHMENT_VOLUME_ID=""
+CINDER_ATTACHMENT_ID=""
+CINDER_AI_ATTACHMENT_ID=""
+CINDER_LEGACY_ATTACHMENT_ID=""
+CINDER_AI_LEGACY_RESERVED="no"
+CINDER_UPLOAD_IMAGE="${BASE}-vol-upload-image"
+CINDER_VOLUME_TYPE="${BASE}-type"
+CINDER_VOLUME_TYPE_ID=""
+CINDER_QOS_SPEC="${BASE}-qos"
+CINDER_QOS_SPEC_ID=""
+CINDER_GROUP_TYPE="${BASE}-group-type"
+CINDER_GROUP_TYPE_ID=""
+CINDER_GROUP_TYPE_MARKER_SET="no"
+CINDER_BACKEND_HOST=""
+CINDER_DEFAULT_TYPE_SET="no"
+CINDER_EXTENDED_READY="no"
+CINDER_SNAPSHOT_READY="no"
+CINDER_TRANSFER_READY="no"
+CINDER_ATTACHMENT_READY="no"
 GLANCE_CREATE_IMAGE="${BASE}-img-create"
 GLANCE_UPDATE_IMAGE="${BASE}-img-update"
 GLANCE_DELETE_IMAGE="${BASE}-img-delete"
@@ -142,6 +173,7 @@ OCTAVIA_DELETE_LB="${BASE}-lb-delete"
 MEMBER_NOVA_SERVER="${BASE}-member-nova"
 MEMBER_NEUTRON_NETWORK="${BASE}-member-net"
 MEMBER_CINDER_VOLUME="${BASE}-member-vol"
+ADMIN_CINDER_VOLUME="${BASE}-admin-vol"
 MEMBER_GLANCE_IMAGE="${BASE}-member-img"
 MEMBER_OCTAVIA_LB="${BASE}-member-lb"
 SYSTEM_CREATE_ROLE="${BASE}-system-role-create"
@@ -250,6 +282,17 @@ record_inconclusive() {
   inconclusive=$((inconclusive + 1))
 }
 
+record_fixture_failure() {
+  local description="$1"
+  local output="$2"
+
+  if is_unavailable "${output}"; then
+    record_skip "${description}: service/command unavailable" "${output}"
+  else
+    record_inconclusive "${description}: fixture setup failed" "${output}"
+  fi
+}
+
 die_setup() {
   echo "ERROR: $1"
   if [[ -n "${2:-}" ]]; then
@@ -300,6 +343,35 @@ first_output_value() {
   printf '%s' "${value}"
 }
 
+wait_for_fixture_status() {
+  local description="$1"
+  local expected="$2"
+  shift 2
+  local attempt
+  local status
+
+  for attempt in $(seq 1 60); do
+    run_fixture "$@"
+    if (( RUN_STATUS != 0 )); then
+      record_inconclusive "${description}: status lookup failed" "${RUN_OUTPUT}"
+      return 1
+    fi
+    status="$(first_output_value "${RUN_OUTPUT}")"
+    status="${status,,}"
+    if [[ "${status}" == "${expected,,}" ]]; then
+      return 0
+    fi
+    if [[ "${status}" == error* ]]; then
+      record_skip "${description}: backend entered ${status}" ""
+      return 1
+    fi
+    sleep 2
+  done
+
+  record_inconclusive "${description}: timed out waiting for ${expected}" "last status: ${status}"
+  return 1
+}
+
 cleanup_one() {
   local rc_file="$1"
   local description="$2"
@@ -317,6 +389,32 @@ cleanup_one() {
     echo "CLEANUP WARN ${description}"
     echo "${RUN_OUTPUT}"
   fi
+}
+
+cleanup_snapshot() {
+  local snapshot="$1"
+  local description="$2"
+  local attempt
+
+  cleanup_one "${FIXTURE_RC_FILE}" "${description}" openstack volume snapshot delete "${snapshot}"
+  for attempt in $(seq 1 60); do
+    run_fixture openstack volume snapshot show "${snapshot}"
+    if is_absent "${RUN_OUTPUT}"; then
+      echo "CLEANUP OK ${description}: deletion confirmed"
+      return
+    fi
+    if is_unavailable "${RUN_OUTPUT}"; then
+      echo "CLEANUP SKIP ${description}: status command unavailable"
+      return
+    fi
+    if (( RUN_STATUS != 0 )); then
+      echo "CLEANUP WARN ${description}: could not confirm deletion"
+      echo "${RUN_OUTPUT}"
+      return
+    fi
+    sleep 2
+  done
+  echo "CLEANUP WARN ${description}: deletion was not confirmed before timeout"
 }
 
 cleanup() {
@@ -346,6 +444,34 @@ cleanup() {
   cleanup_one "${FIXTURE_RC_FILE}" "Cinder create-probe volume ${CINDER_CREATE_VOLUME}" openstack volume delete "${CINDER_CREATE_VOLUME}"
   cleanup_one "${FIXTURE_RC_FILE}" "Cinder update fixture volume ${CINDER_UPDATE_VOLUME}" openstack volume delete "${CINDER_UPDATE_VOLUME}"
   cleanup_one "${FIXTURE_RC_FILE}" "Cinder delete fixture volume ${CINDER_DELETE_VOLUME}" openstack volume delete "${CINDER_DELETE_VOLUME}"
+  if [[ -n "${CINDER_AI_ATTACHMENT_ID}" ]]; then
+    cleanup_one "${FIXTURE_RC_FILE}" "Cinder AI create-probe attachment ${CINDER_AI_ATTACHMENT_ID}" openstack --os-volume-api-version 3.44 volume attachment delete "${CINDER_AI_ATTACHMENT_ID}"
+  fi
+  if [[ -n "${CINDER_LEGACY_ATTACHMENT_ID}" ]]; then
+    cleanup_one "${FIXTURE_RC_FILE}" "Cinder AI legacy create-probe attachment ${CINDER_LEGACY_ATTACHMENT_ID}" openstack --os-volume-api-version 3.44 volume attachment delete "${CINDER_LEGACY_ATTACHMENT_ID}"
+  fi
+  if [[ -n "${CINDER_ATTACHMENT_ID}" ]]; then
+    cleanup_one "${FIXTURE_RC_FILE}" "Cinder attachment ${CINDER_ATTACHMENT_ID}" openstack --os-volume-api-version 3.44 volume attachment delete "${CINDER_ATTACHMENT_ID}"
+  fi
+  if [[ -n "${CINDER_AI_TRANSFER_ID}" ]]; then
+    cleanup_one "${FIXTURE_RC_FILE}" "Cinder AI create-probe transfer request ${CINDER_AI_TRANSFER_ID}" openstack volume transfer request delete "${CINDER_AI_TRANSFER_ID}"
+  fi
+  if [[ -n "${CINDER_TRANSFER_ID}" ]]; then
+    cleanup_one "${FIXTURE_RC_FILE}" "Cinder transfer request ${CINDER_TRANSFER_ID}" openstack volume transfer request delete "${CINDER_TRANSFER_ID}"
+  fi
+  cleanup_snapshot "${CINDER_SNAPSHOT}-create-probe" "Cinder snapshot create probe ${CINDER_SNAPSHOT}-create-probe"
+  cleanup_snapshot "${CINDER_SNAPSHOT}" "Cinder snapshot ${CINDER_SNAPSHOT}"
+  if [[ -n "${CINDER_LEGACY_ATTACHMENT_ID}" ]]; then
+    cleanup_one "${FIXTURE_RC_FILE}" "Cinder legacy attachment state on ${CINDER_EXTENDED_VOLUME}" "${SCRIPT_DIR}/cinder-api-probe.sh" detach "${CINDER_EXTENDED_VOLUME_ID}"
+  fi
+  if [[ "${CINDER_AI_LEGACY_RESERVED}" == "yes" ]]; then
+    cleanup_one "${FIXTURE_RC_FILE}" "Cinder legacy reservation state on ${CINDER_EXTENDED_VOLUME}" "${SCRIPT_DIR}/cinder-api-probe.sh" unreserve "${CINDER_EXTENDED_VOLUME_ID}"
+  fi
+  cleanup_one "${FIXTURE_RC_FILE}" "Cinder extended fixture volume ${CINDER_EXTENDED_VOLUME}" openstack volume delete "${CINDER_EXTENDED_VOLUME}"
+  cleanup_one "${FIXTURE_RC_FILE}" "Cinder create-from-image probe volume ${CINDER_FROM_IMAGE_VOLUME}" openstack volume delete "${CINDER_FROM_IMAGE_VOLUME}"
+  cleanup_one "${FIXTURE_RC_FILE}" "Cinder transfer fixture volume ${CINDER_TRANSFER_VOLUME}" openstack volume delete "${CINDER_TRANSFER_VOLUME}"
+  cleanup_one "${FIXTURE_RC_FILE}" "Cinder attachment fixture volume ${CINDER_ATTACHMENT_VOLUME}" openstack volume delete "${CINDER_ATTACHMENT_VOLUME}"
+  cleanup_one "${ADMIN_RC}" "Cinder upload-to-image probe image ${CINDER_UPLOAD_IMAGE}" openstack image delete "${CINDER_UPLOAD_IMAGE}"
   cleanup_one "${FIXTURE_RC_FILE}" "Glance create-probe image ${GLANCE_CREATE_IMAGE}" openstack image delete "${GLANCE_CREATE_IMAGE}"
   cleanup_one "${FIXTURE_RC_FILE}" "Glance update fixture image ${GLANCE_UPDATE_IMAGE}" openstack image delete "${GLANCE_UPDATE_IMAGE}"
   cleanup_one "${FIXTURE_RC_FILE}" "Glance delete fixture image ${GLANCE_DELETE_IMAGE}" openstack image delete "${GLANCE_DELETE_IMAGE}"
@@ -354,6 +480,7 @@ cleanup() {
   cleanup_one "${FIXTURE_RC_FILE}" "Neutron delete fixture network ${NEUTRON_DELETE_NETWORK}" openstack network delete "${NEUTRON_DELETE_NETWORK}"
   cleanup_one "${FIXTURE_RC_FILE}" "member-regression server ${MEMBER_NOVA_SERVER}" openstack server delete --wait "${MEMBER_NOVA_SERVER}"
   cleanup_one "${FIXTURE_RC_FILE}" "member-regression volume ${MEMBER_CINDER_VOLUME}" openstack volume delete "${MEMBER_CINDER_VOLUME}"
+  cleanup_one "${FIXTURE_RC_FILE}" "admin-regression volume ${ADMIN_CINDER_VOLUME}" openstack volume delete "${ADMIN_CINDER_VOLUME}"
   cleanup_one "${FIXTURE_RC_FILE}" "member-regression image ${MEMBER_GLANCE_IMAGE}" openstack image delete "${MEMBER_GLANCE_IMAGE}"
   cleanup_one "${FIXTURE_RC_FILE}" "member-regression network ${MEMBER_NEUTRON_NETWORK}" openstack network delete "${MEMBER_NEUTRON_NETWORK}"
   if [[ "${SKIP_OCTAVIA}" != "yes" ]]; then
@@ -373,6 +500,18 @@ cleanup() {
   fi
   cleanup_one "${ADMIN_RC}" "system-scope create-probe flavor ${SYSTEM_CREATE_FLAVOR}" openstack flavor delete "${SYSTEM_CREATE_FLAVOR}"
   cleanup_one "${ADMIN_RC}" "system-scope create-probe volume type ${SYSTEM_CREATE_VOLUME_TYPE}" openstack volume type delete "${SYSTEM_CREATE_VOLUME_TYPE}"
+  if [[ "${CINDER_DEFAULT_TYPE_SET}" == "yes" ]]; then
+    cleanup_one "${FIXTURE_RC_FILE}" "Cinder project default volume type for ${PROJECT_ID}" cinder --os-volume-api-version 3.62 default-type-unset "${PROJECT_ID}"
+  fi
+  if [[ -n "${CINDER_QOS_SPEC_ID}" ]]; then
+    cleanup_one "${ADMIN_RC}" "Cinder QoS spec ${CINDER_QOS_SPEC_ID}" openstack volume qos delete --force "${CINDER_QOS_SPEC_ID}"
+  fi
+  if [[ -n "${CINDER_GROUP_TYPE_ID}" ]]; then
+    cleanup_one "${ADMIN_RC}" "Cinder group type ${CINDER_GROUP_TYPE_ID}" openstack --os-volume-api-version 3.11 volume group type delete "${CINDER_GROUP_TYPE_ID}"
+  fi
+  if [[ -n "${CINDER_VOLUME_TYPE_ID}" ]]; then
+    cleanup_one "${ADMIN_RC}" "Cinder volume type ${CINDER_VOLUME_TYPE_ID}" openstack volume type delete "${CINDER_VOLUME_TYPE_ID}"
+  fi
   cleanup_one "${ADMIN_RC}" "system-scope create-probe role ${SYSTEM_CREATE_ROLE}" openstack role delete "${SYSTEM_CREATE_ROLE}"
   if [[ -n "${KEYSTONE_DELETE_USER_ID}" ]]; then
     cleanup_one "${ADMIN_RC}" "system-scope delete fixture user ${KEYSTONE_DELETE_USER_NAME} ${KEYSTONE_DELETE_USER_ID}" openstack user delete "${KEYSTONE_DELETE_USER_ID}"
@@ -449,6 +588,74 @@ classify_allowed_mutation() {
   else
     record_pass "${name}: not denied by policy; service returned non-policy error"
     echo "${output}"
+  fi
+}
+
+classify_ai_read() {
+  local name="$1"
+  local output="$2"
+  local status="$3"
+
+  if (( status == 0 )); then
+    record_pass "${name}: allowed for ai_observer"
+  elif is_unavailable "${output}"; then
+    record_skip "${name}: service/command unavailable" "${output}"
+  elif is_policy_denied "${output}"; then
+    record_fail "${name}: unexpectedly denied by policy" "${output}"
+  else
+    record_fail "${name}: read failed" "${output}"
+  fi
+}
+
+classify_ai_read_contains() {
+  local name="$1"
+  local needle="$2"
+  local output="$3"
+  local status="$4"
+
+  if (( status == 0 )) && grep -Fq "${needle}" <<<"${output}"; then
+    record_pass "${name}: allowed and expected field visible to ai_observer"
+  elif (( status == 0 )); then
+    record_fail "${name}: command succeeded but expected field was filtered" "${output}"
+  elif is_unavailable "${output}"; then
+    record_skip "${name}: service/command unavailable" "${output}"
+  elif is_policy_denied "${output}"; then
+    record_fail "${name}: unexpectedly denied by policy" "${output}"
+  else
+    record_fail "${name}: read failed" "${output}"
+  fi
+}
+
+classify_ai_read_filtered() {
+  local name="$1"
+  local needle="$2"
+  local output="$3"
+  local status="$4"
+
+  if (( status == 0 )) && ! grep -Fq "${needle}" <<<"${output}"; then
+    record_pass "${name}: sensitive field filtered as required"
+  elif (( status == 0 )); then
+    record_fail "${name}: unexpectedly exposed sensitive field to ai_observer" "${output}"
+  elif is_unavailable "${output}"; then
+    record_skip "${name}: service/command unavailable" "${output}"
+  else
+    record_fail "${name}: filtered read failed" "${output}"
+  fi
+}
+
+classify_ai_expected_read_denial() {
+  local name="$1"
+  local output="$2"
+  local status="$3"
+
+  if is_policy_denied "${output}"; then
+    record_pass "${name}: access denied as required"
+  elif (( status == 0 )); then
+    record_fail "${name}: unexpectedly allowed for ai_observer" "${output}"
+  elif is_unavailable "${output}"; then
+    record_skip "${name}: service/command unavailable" "${output}"
+  else
+    record_fail "${name}: request was not denied" "${output}"
   fi
 }
 
@@ -623,9 +830,9 @@ write_unset "${MEMBER_RC_FILE}" OS_SYSTEM_SCOPE OS_PROJECT_NAME OS_PROJECT_DOMAI
 cp "${ADMIN_RC}" "${FIXTURE_RC_FILE}"
 {
   printf '\nexport OS_PROJECT_ID=%q\n' "${PROJECT_ID}"
-  printf 'unset OS_PROJECT_NAME\n'
-  printf 'unset OS_PROJECT_DOMAIN_NAME\n'
-  printf 'unset OS_SYSTEM_SCOPE\n'
+  printf 'unset OS_PROJECT_NAME OS_PROJECT_DOMAIN_NAME OS_PROJECT_DOMAIN_ID\n'
+  printf 'unset OS_TENANT_NAME OS_TENANT_ID\n'
+  printf 'unset OS_DOMAIN_NAME OS_DOMAIN_ID OS_SYSTEM_SCOPE OS_TRUST_ID\n'
 } >> "${FIXTURE_RC_FILE}"
 log_created "AI project RC file" "${AI_RC_FILE}" ""
 log_created "AI system RC file" "${AI_SYSTEM_RC_FILE}" ""
@@ -700,6 +907,17 @@ if (( RUN_STATUS == 0 )); then
   classify_allowed_mutation "member cinder volume set" "${RUN_OUTPUT}" "${RUN_STATUS}"
   run_member openstack volume delete "${MEMBER_CINDER_VOLUME}"
   classify_allowed_mutation "member cinder volume delete" "${RUN_OUTPUT}" "${RUN_STATUS}"
+fi
+
+echo
+echo "== Non-AI project-admin role regression: Cinder =="
+run_fixture openstack volume create --size "${VOLUME_SIZE}" -f value -c id "${ADMIN_CINDER_VOLUME}"
+classify_allowed_mutation "project-admin cinder volume create" "${RUN_OUTPUT}" "${RUN_STATUS}"
+if (( RUN_STATUS == 0 )); then
+  run_fixture openstack volume set --description "${BASE} admin regression" "${ADMIN_CINDER_VOLUME}"
+  classify_allowed_mutation "project-admin cinder volume set" "${RUN_OUTPUT}" "${RUN_STATUS}"
+  run_fixture openstack volume delete "${ADMIN_CINDER_VOLUME}"
+  classify_allowed_mutation "project-admin cinder volume delete" "${RUN_OUTPUT}" "${RUN_STATUS}"
 fi
 
 echo
@@ -785,6 +1003,297 @@ echo "== Cinder delete denial =="
 if create_fixture "cinder volume delete fixture" "Cinder delete fixture volume" "${CINDER_DELETE_VOLUME}" openstack volume create --size "${VOLUME_SIZE}" -f value -c id "${CINDER_DELETE_VOLUME}"; then
   run_ai openstack volume delete "${CINDER_DELETE_VOLUME}"
   classify_ai_mutation "cinder volume delete" "${RUN_OUTPUT}" "${RUN_STATUS}"
+fi
+
+echo
+echo "== Cinder create-from-image denial =="
+run_ai openstack volume create --image "${IMAGE_ID}" --size "${VOLUME_SIZE}" "${CINDER_FROM_IMAGE_VOLUME}"
+classify_ai_create "cinder volume create from image" "${CINDER_FROM_IMAGE_VOLUME}" "${RUN_OUTPUT}" "${RUN_STATUS}" volume show
+
+echo
+echo "== Extended Cinder mutation fixtures =="
+if create_fixture "cinder extended volume fixture" "Cinder extended fixture volume" "${CINDER_EXTENDED_VOLUME}" openstack volume create --size "${VOLUME_SIZE}" --property ai_observer_guard=fixture -f value -c id "${CINDER_EXTENDED_VOLUME}"; then
+  CINDER_EXTENDED_VOLUME_ID="$(first_output_value "${RUN_OUTPUT}")"
+  if wait_for_fixture_status "cinder extended volume fixture" "available" openstack volume show -f value -c status "${CINDER_EXTENDED_VOLUME}"; then
+    CINDER_EXTENDED_READY="yes"
+  fi
+fi
+
+if [[ "${CINDER_EXTENDED_READY}" == "yes" ]]; then
+  echo
+  echo "== Cinder volume metadata denial =="
+  run_ai openstack volume set --property ai_observer_new_metadata=denied "${CINDER_EXTENDED_VOLUME}"
+  classify_ai_mutation "cinder volume metadata set" "${RUN_OUTPUT}" "${RUN_STATUS}"
+  run_ai openstack volume unset --property ai_observer_guard "${CINDER_EXTENDED_VOLUME}"
+  classify_ai_mutation "cinder volume metadata unset" "${RUN_OUTPUT}" "${RUN_STATUS}"
+
+  echo
+  echo "== Cinder snapshot and snapshot metadata denial =="
+  run_ai openstack volume snapshot create --volume "${CINDER_EXTENDED_VOLUME}" "${CINDER_SNAPSHOT}-create-probe"
+  classify_ai_create "cinder snapshot create" "${CINDER_SNAPSHOT}-create-probe" "${RUN_OUTPUT}" "${RUN_STATUS}" volume snapshot show
+
+  if create_fixture "cinder snapshot fixture" "Cinder snapshot fixture" "${CINDER_SNAPSHOT}" openstack volume snapshot create --volume "${CINDER_EXTENDED_VOLUME}" --property ai_observer_guard=fixture -f value -c id "${CINDER_SNAPSHOT}"; then
+    if wait_for_fixture_status "cinder snapshot fixture" "available" openstack volume snapshot show -f value -c status "${CINDER_SNAPSHOT}"; then
+      CINDER_SNAPSHOT_READY="yes"
+    fi
+  fi
+
+  if [[ "${CINDER_SNAPSHOT_READY}" == "yes" ]]; then
+    run_ai openstack volume snapshot set --name "${CINDER_SNAPSHOT}-renamed" "${CINDER_SNAPSHOT}"
+    classify_ai_mutation "cinder snapshot set" "${RUN_OUTPUT}" "${RUN_STATUS}"
+    run_ai openstack volume snapshot set --property ai_observer_new_metadata=denied "${CINDER_SNAPSHOT}"
+    classify_ai_mutation "cinder snapshot metadata set" "${RUN_OUTPUT}" "${RUN_STATUS}"
+    run_ai openstack volume snapshot unset --property ai_observer_guard "${CINDER_SNAPSHOT}"
+    classify_ai_mutation "cinder snapshot metadata unset" "${RUN_OUTPUT}" "${RUN_STATUS}"
+    run_ai openstack volume snapshot delete "${CINDER_SNAPSHOT}"
+    classify_ai_mutation "cinder snapshot delete" "${RUN_OUTPUT}" "${RUN_STATUS}"
+  fi
+
+  echo
+  echo "== Cinder readonly and upload-to-image denial =="
+  run_ai cinder readonly-mode-update "${CINDER_EXTENDED_VOLUME}" true
+  classify_ai_mutation "cinder readonly-mode-update" "${RUN_OUTPUT}" "${RUN_STATUS}"
+  run_ai cinder upload-to-image --disk-format raw --container-format bare "${CINDER_EXTENDED_VOLUME}" "${CINDER_UPLOAD_IMAGE}"
+  classify_ai_mutation "cinder upload-to-image" "${RUN_OUTPUT}" "${RUN_STATUS}"
+
+  echo
+  echo "== Legacy Cinder attach and reserve action denial =="
+  run_ai "${SCRIPT_DIR}/cinder-api-probe.sh" reserve "${CINDER_EXTENDED_VOLUME_ID}"
+  if (( RUN_STATUS == 0 )); then
+    CINDER_AI_LEGACY_RESERVED="yes"
+  fi
+  classify_ai_mutation "cinder legacy reserve" "${RUN_OUTPUT}" "${RUN_STATUS}"
+  run_ai "${SCRIPT_DIR}/cinder-api-probe.sh" attach "${CINDER_EXTENDED_VOLUME_ID}" "00000000-0000-4000-8000-000000000043"
+  classify_ai_mutation "cinder legacy attach" "${RUN_OUTPUT}" "${RUN_STATUS}"
+  if (( RUN_STATUS == 0 )); then
+    run_fixture openstack --os-volume-api-version 3.44 volume attachment list --volume-id "${CINDER_EXTENDED_VOLUME_ID}" -f value -c ID
+    if (( RUN_STATUS == 0 )); then
+      CINDER_LEGACY_ATTACHMENT_ID="$(first_output_value "${RUN_OUTPUT}")"
+    fi
+  fi
+fi
+
+echo
+echo "== Cinder transfer denial =="
+if create_fixture "cinder transfer volume fixture" "Cinder transfer fixture volume" "${CINDER_TRANSFER_VOLUME}" openstack volume create --size "${VOLUME_SIZE}" -f value -c id "${CINDER_TRANSFER_VOLUME}"; then
+  if wait_for_fixture_status "cinder transfer volume fixture" "available" openstack volume show -f value -c status "${CINDER_TRANSFER_VOLUME}"; then
+    CINDER_TRANSFER_READY="yes"
+  fi
+fi
+
+if [[ "${CINDER_TRANSFER_READY}" == "yes" ]]; then
+  run_ai openstack volume transfer request create -f value -c id "${CINDER_TRANSFER_VOLUME}"
+  if (( RUN_STATUS == 0 )); then
+    CINDER_AI_TRANSFER_ID="$(first_output_value "${RUN_OUTPUT}")"
+  fi
+  classify_ai_mutation "cinder transfer create" "${RUN_OUTPUT}" "${RUN_STATUS}"
+
+  run_fixture openstack volume transfer request create -f value -c id -c auth_key "${CINDER_TRANSFER_VOLUME}"
+  if (( RUN_STATUS == 0 )); then
+    CINDER_TRANSFER_ID="$(first_output_value "${RUN_OUTPUT}")"
+    CINDER_TRANSFER_AUTH_KEY="$(sed -n '/[^[:space:]]/{s/^[[:space:]]*//;s/[[:space:]]*$//;p;}' <<<"${RUN_OUTPUT}" | grep -Fvx "${CINDER_TRANSFER_ID}" | head -n 1)"
+    log_created "Cinder transfer request" "${CINDER_TRANSFER_ID}" ""
+    run_ai openstack volume transfer request delete "${CINDER_TRANSFER_ID}"
+    classify_ai_mutation "cinder transfer delete" "${RUN_OUTPUT}" "${RUN_STATUS}"
+    if [[ -n "${CINDER_TRANSFER_AUTH_KEY}" ]]; then
+      run_ai openstack volume transfer request accept --auth-key "${CINDER_TRANSFER_AUTH_KEY}" "${CINDER_TRANSFER_ID}"
+      classify_ai_mutation "cinder transfer accept" "${RUN_OUTPUT}" "${RUN_STATUS}"
+    else
+      record_skip "cinder transfer accept: fixture auth key was not returned" ""
+    fi
+  elif is_unavailable "${RUN_OUTPUT}"; then
+    record_skip "cinder transfer delete/accept: command unavailable" "${RUN_OUTPUT}"
+  else
+    record_inconclusive "cinder transfer request fixture creation failed" "${RUN_OUTPUT}"
+  fi
+fi
+
+echo
+echo "== Cinder attachment reserve/update/complete/delete denial =="
+if create_fixture "cinder attachment volume fixture" "Cinder attachment fixture volume" "${CINDER_ATTACHMENT_VOLUME}" openstack volume create --size "${VOLUME_SIZE}" -f value -c id "${CINDER_ATTACHMENT_VOLUME}"; then
+  CINDER_ATTACHMENT_VOLUME_ID="$(first_output_value "${RUN_OUTPUT}")"
+  if wait_for_fixture_status "cinder attachment volume fixture" "available" openstack volume show -f value -c status "${CINDER_ATTACHMENT_VOLUME}"; then
+    CINDER_ATTACHMENT_READY="yes"
+  fi
+fi
+
+if [[ "${CINDER_ATTACHMENT_READY}" == "yes" ]]; then
+  run_ai openstack --os-volume-api-version 3.44 volume attachment create --no-connect "${CINDER_ATTACHMENT_VOLUME_ID}" "${NOVA_UPDATE_SERVER}"
+  if (( RUN_STATUS == 0 )); then
+    run_fixture openstack --os-volume-api-version 3.44 volume attachment list --volume-id "${CINDER_ATTACHMENT_VOLUME_ID}" -f value -c ID
+    if (( RUN_STATUS == 0 )); then
+      CINDER_AI_ATTACHMENT_ID="$(first_output_value "${RUN_OUTPUT}")"
+    fi
+  fi
+  classify_ai_mutation "cinder attachment create/reserve" "${RUN_OUTPUT}" "${RUN_STATUS}"
+
+  run_fixture openstack --os-volume-api-version 3.44 volume attachment create --no-connect "${CINDER_ATTACHMENT_VOLUME_ID}" "${NOVA_UPDATE_SERVER}"
+  if (( RUN_STATUS == 0 )); then
+    run_fixture openstack --os-volume-api-version 3.44 volume attachment list --volume-id "${CINDER_ATTACHMENT_VOLUME_ID}" -f value -c ID
+    CINDER_ATTACHMENT_ID="$(first_output_value "${RUN_OUTPUT}")"
+    if (( RUN_STATUS == 0 )) && [[ -n "${CINDER_ATTACHMENT_ID}" ]]; then
+      log_created "Cinder attachment" "${CINDER_ATTACHMENT_ID}" ""
+      run_ai openstack --os-volume-api-version 3.44 volume attachment set --host ai-observer-invalid-host --ip 192.0.2.1 "${CINDER_ATTACHMENT_ID}"
+      classify_ai_mutation "cinder attachment update" "${RUN_OUTPUT}" "${RUN_STATUS}"
+      run_ai openstack --os-volume-api-version 3.44 volume attachment complete "${CINDER_ATTACHMENT_ID}"
+      classify_ai_mutation "cinder attachment complete" "${RUN_OUTPUT}" "${RUN_STATUS}"
+      run_ai openstack --os-volume-api-version 3.44 volume attachment delete "${CINDER_ATTACHMENT_ID}"
+      classify_ai_mutation "cinder attachment delete/unreserve" "${RUN_OUTPUT}" "${RUN_STATUS}"
+      run_ai "${SCRIPT_DIR}/cinder-api-probe.sh" unreserve "${CINDER_ATTACHMENT_VOLUME_ID}"
+      classify_ai_mutation "cinder legacy unreserve" "${RUN_OUTPUT}" "${RUN_STATUS}"
+      run_ai "${SCRIPT_DIR}/cinder-api-probe.sh" detach "${CINDER_ATTACHMENT_VOLUME_ID}"
+      classify_ai_mutation "cinder legacy detach" "${RUN_OUTPUT}" "${RUN_STATUS}"
+    else
+      record_inconclusive "cinder attachment fixture lookup failed" "${RUN_OUTPUT}"
+    fi
+  elif is_unavailable "${RUN_OUTPUT}"; then
+    record_skip "cinder attachment update/complete/delete: command unavailable" "${RUN_OUTPUT}"
+  else
+    record_inconclusive "cinder attachment fixture creation failed" "${RUN_OUTPUT}"
+  fi
+fi
+
+echo
+echo "== Cinder admin-gated read fixtures =="
+run_admin openstack volume type create --property ai_observer_sensitive_marker=visible -f value -c id "${CINDER_VOLUME_TYPE}"
+if (( RUN_STATUS == 0 )); then
+  CINDER_VOLUME_TYPE_ID="$(first_output_value "${RUN_OUTPUT}")"
+  log_created "Cinder volume type" "${CINDER_VOLUME_TYPE}" "${CINDER_VOLUME_TYPE_ID}"
+else
+  record_fixture_failure "cinder sensitive extra specs read" "${RUN_OUTPUT}"
+fi
+
+run_admin openstack volume qos create --property ai_observer_qos_marker=visible -f value -c id "${CINDER_QOS_SPEC}"
+if (( RUN_STATUS == 0 )); then
+  CINDER_QOS_SPEC_ID="$(first_output_value "${RUN_OUTPUT}")"
+  log_created "Cinder QoS spec" "${CINDER_QOS_SPEC}" "${CINDER_QOS_SPEC_ID}"
+else
+  record_fixture_failure "cinder QoS show read" "${RUN_OUTPUT}"
+fi
+
+run_admin openstack --os-volume-api-version 3.11 volume group type create -f value -c ID "${CINDER_GROUP_TYPE}"
+if (( RUN_STATUS == 0 )); then
+  CINDER_GROUP_TYPE_ID="$(first_output_value "${RUN_OUTPUT}")"
+  run_fixture cinder --os-volume-api-version 3.11 group-type-key "${CINDER_GROUP_TYPE_ID}" set ai_observer_group_marker=visible
+  if (( RUN_STATUS == 0 )); then
+    run_fixture cinder --os-volume-api-version 3.11 group-type-show "${CINDER_GROUP_TYPE_ID}"
+    if (( RUN_STATUS == 0 )) && grep -Fq "ai_observer_group_marker" <<<"${RUN_OUTPUT}"; then
+      CINDER_GROUP_TYPE_MARKER_SET="yes"
+      log_created "Cinder group type" "${CINDER_GROUP_TYPE}" "${CINDER_GROUP_TYPE_ID}"
+    else
+      record_inconclusive "cinder group type spec fixture verification failed" "${RUN_OUTPUT}"
+    fi
+  else
+    record_fixture_failure "cinder group type specs read" "${RUN_OUTPUT}"
+  fi
+else
+  record_fixture_failure "cinder group type reads" "${RUN_OUTPUT}"
+fi
+
+if [[ -n "${CINDER_VOLUME_TYPE_ID}" ]]; then
+  run_fixture cinder --os-volume-api-version 3.62 default-type-set "${CINDER_VOLUME_TYPE_ID}" "${PROJECT_ID}"
+  if (( RUN_STATUS == 0 )); then
+    CINDER_DEFAULT_TYPE_SET="yes"
+  else
+    record_fixture_failure "cinder default type specific read" "${RUN_OUTPUT}"
+  fi
+fi
+
+echo
+echo "== Cinder admin-gated reads =="
+run_fixture openstack volume service list --service cinder-volume -f value -c Host
+if (( RUN_STATUS == 0 )); then
+  CINDER_BACKEND_HOST="$(sed -n '/[^[:space:]]/{s/^[[:space:]]*//;s/[[:space:]]*$//;p;q;}' <<<"${RUN_OUTPUT}")"
+else
+  record_fixture_failure "cinder backend host discovery" "${RUN_OUTPUT}"
+fi
+
+run_ai openstack volume service list --service cinder-volume -f value -c Host
+classify_ai_expected_read_denial "cinder volume service list (Caracal hard-admin read)" "${RUN_OUTPUT}" "${RUN_STATUS}"
+
+run_ai cinder get-pools --detail
+classify_ai_expected_read_denial "cinder backend pool list (Caracal hard-admin read)" "${RUN_OUTPUT}" "${RUN_STATUS}"
+
+run_ai "${SCRIPT_DIR}/cinder-api-probe.sh" host-list
+classify_ai_expected_read_denial "cinder host list (Caracal rule also authorizes host PUT)" "${RUN_OUTPUT}" "${RUN_STATUS}"
+
+if [[ -n "${CINDER_BACKEND_HOST}" ]]; then
+  run_ai cinder get-capabilities "${CINDER_BACKEND_HOST}"
+  classify_ai_expected_read_denial "cinder backend capability show (Caracal hard-admin read)" "${RUN_OUTPUT}" "${RUN_STATUS}"
+else
+  record_skip "cinder backend capability show: no cinder-volume host discovered" ""
+fi
+
+run_ai cinder --os-volume-api-version 3.62 default-type-list
+if [[ "${CINDER_DEFAULT_TYPE_SET}" == "yes" ]]; then
+  classify_ai_read_contains "cinder default type list all" "${CINDER_VOLUME_TYPE_ID}" "${RUN_OUTPUT}" "${RUN_STATUS}"
+else
+  classify_ai_read "cinder default type list all" "${RUN_OUTPUT}" "${RUN_STATUS}"
+fi
+if [[ "${CINDER_DEFAULT_TYPE_SET}" == "yes" ]]; then
+  run_ai cinder --os-volume-api-version 3.62 default-type-list --project-id "${PROJECT_ID}"
+  classify_ai_read_contains "cinder default type show for project" "${CINDER_VOLUME_TYPE_ID}" "${RUN_OUTPUT}" "${RUN_STATUS}"
+fi
+
+run_ai openstack volume qos list
+classify_ai_expected_read_denial "cinder QoS list (Caracal hard-admin read)" "${RUN_OUTPUT}" "${RUN_STATUS}"
+if [[ -n "${CINDER_QOS_SPEC_ID}" ]]; then
+  run_ai openstack volume qos show "${CINDER_QOS_SPEC_ID}"
+  classify_ai_expected_read_denial "cinder QoS show (Caracal hard-admin read)" "${RUN_OUTPUT}" "${RUN_STATUS}"
+fi
+
+if [[ -n "${CINDER_VOLUME_TYPE_ID}" ]]; then
+  run_ai openstack volume type show "${CINDER_VOLUME_TYPE_ID}"
+  classify_ai_read_contains "cinder sensitive volume type extra specs" "ai_observer_sensitive_marker" "${RUN_OUTPUT}" "${RUN_STATUS}"
+fi
+
+run_ai openstack --os-volume-api-version 3.11 volume group type list
+classify_ai_read "cinder group type list" "${RUN_OUTPUT}" "${RUN_STATUS}"
+if [[ -n "${CINDER_GROUP_TYPE_ID}" && "${CINDER_GROUP_TYPE_MARKER_SET}" == "yes" ]]; then
+  run_ai cinder --os-volume-api-version 3.11 group-type-show "${CINDER_GROUP_TYPE_ID}"
+  classify_ai_read_filtered "cinder aggregate group type show" "ai_observer_group_marker" "${RUN_OUTPUT}" "${RUN_STATUS}"
+  run_ai "${SCRIPT_DIR}/cinder-api-probe.sh" group-spec-list "${CINDER_GROUP_TYPE_ID}"
+  classify_ai_read_contains "cinder group type specs list endpoint" "ai_observer_group_marker" "${RUN_OUTPUT}" "${RUN_STATUS}"
+  run_ai "${SCRIPT_DIR}/cinder-api-probe.sh" group-spec-show "${CINDER_GROUP_TYPE_ID}" ai_observer_group_marker
+  classify_ai_read_contains "cinder group type specific spec show" "ai_observer_group_marker" "${RUN_OUTPUT}" "${RUN_STATUS}"
+fi
+
+echo
+echo "== Cinder admin-gated write denial =="
+run_ai openstack volume service set --disable "${BASE}-nonexistent-host" cinder-volume
+classify_ai_mutation "cinder volume service set" "${RUN_OUTPUT}" "${RUN_STATUS}"
+
+run_ai openstack volume host set --disable "${BASE}-nonexistent-host"
+classify_ai_mutation "cinder volume host set" "${RUN_OUTPUT}" "${RUN_STATUS}"
+
+if [[ "${CINDER_DEFAULT_TYPE_SET}" == "yes" ]]; then
+  run_ai cinder --os-volume-api-version 3.62 default-type-set "${CINDER_VOLUME_TYPE_ID}" "${PROJECT_ID}"
+  classify_ai_mutation "cinder default type set" "${RUN_OUTPUT}" "${RUN_STATUS}"
+  run_ai cinder --os-volume-api-version 3.62 default-type-unset "${PROJECT_ID}"
+  classify_ai_mutation "cinder default type unset" "${RUN_OUTPUT}" "${RUN_STATUS}"
+fi
+
+if [[ -n "${CINDER_QOS_SPEC_ID}" ]]; then
+  run_ai openstack volume qos set --property ai_observer_mutation=denied "${CINDER_QOS_SPEC_ID}"
+  classify_ai_mutation "cinder QoS set" "${RUN_OUTPUT}" "${RUN_STATUS}"
+  run_ai openstack volume qos delete --force "${CINDER_QOS_SPEC_ID}"
+  classify_ai_mutation "cinder QoS delete" "${RUN_OUTPUT}" "${RUN_STATUS}"
+fi
+
+if [[ -n "${CINDER_VOLUME_TYPE_ID}" ]]; then
+  run_ai openstack volume type set --property ai_observer_mutation=denied "${CINDER_VOLUME_TYPE_ID}"
+  classify_ai_mutation "cinder volume type extra spec set" "${RUN_OUTPUT}" "${RUN_STATUS}"
+  run_ai openstack volume type unset --property ai_observer_sensitive_marker "${CINDER_VOLUME_TYPE_ID}"
+  classify_ai_mutation "cinder volume type extra spec unset" "${RUN_OUTPUT}" "${RUN_STATUS}"
+  run_ai openstack volume type delete "${CINDER_VOLUME_TYPE_ID}"
+  classify_ai_mutation "cinder volume type delete" "${RUN_OUTPUT}" "${RUN_STATUS}"
+fi
+
+if [[ -n "${CINDER_GROUP_TYPE_ID}" ]]; then
+  run_ai cinder --os-volume-api-version 3.11 group-type-key "${CINDER_GROUP_TYPE_ID}" set ai_observer_mutation=denied
+  classify_ai_mutation "cinder group type spec set" "${RUN_OUTPUT}" "${RUN_STATUS}"
+  run_ai openstack --os-volume-api-version 3.11 volume group type delete "${CINDER_GROUP_TYPE_ID}"
+  classify_ai_mutation "cinder group type delete" "${RUN_OUTPUT}" "${RUN_STATUS}"
 fi
 
 echo

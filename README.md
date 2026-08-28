@@ -236,7 +236,9 @@ source admin-openrc
   Default
 ```
 
-For deeper create/update/delete regression coverage, run:
+For deeper mutation regression coverage, including Cinder snapshots, metadata,
+image-backed volumes, transfers, attachments, readonly/upload actions, and
+selected admin-gated reads, run:
 
 ```bash
 ./scripts/deep-mutation-guard.sh --admin-rc admin-openrc
@@ -282,6 +284,16 @@ use standard `member` or `admin` assignments on their projects.
   equivalent per-service policy review if deployed.
 - Some sensitive read fields may require additional explicit grants depending on
   charm revision, service configuration, and enabled API extensions.
+- Cinder Caracal protects host GET and host PUT with the same
+  `volume_extension:hosts` rule. Host listing therefore remains denied to
+  `ai_observer`; granting it would also permit host mutation.
+- Cinder service, scheduler-pool, backend-capability, and QoS reads perform hard
+  administrator context checks below policy authorization in Caracal. They
+  remain denied to `ai_observer`; widening `context_is_admin` would expose
+  unrelated admin APIs.
+- Cinder filters group specs from aggregate group-type representations for
+  non-admin contexts. The dedicated group-spec list and individual-spec GET
+  endpoints remain available to `ai_observer` through separate read-only rules.
 - Charmed service units may need a policy reload or service restart after a
   resource update, depending on charm behavior.
 

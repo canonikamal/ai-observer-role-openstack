@@ -3,6 +3,7 @@
 # member-style write access, then allow ai_observer to satisfy reader rules.
 "context_is_admin": "role:admin"
 "admin_api": "role:admin"
+"admin_or_owner": "role:admin or (role:member and project_id:%(project_id)s)"
 "xena_system_admin_or_project_member": "role:admin or (role:member and project_id:%(project_id)s)"
 "system_admin_or_project_member": "(role:admin and system_scope:all) or (role:member and project_id:%(project_id)s)"
 "system_admin_or_project_admin": "(role:admin and system_scope:all) or (role:admin and project_id:%(project_id)s)"
@@ -10,15 +11,46 @@
 "xena_system_admin_or_project_reader": "role:admin or ((role:reader or role:ai_observer) and system_scope:all) or ((role:reader or role:ai_observer) and project_id:%(project_id)s)"
 "system_reader_or_project_reader": "((role:reader or role:ai_observer) and system_scope:all) or ((role:reader or role:ai_observer) and project_id:%(project_id)s)"
 
-# Extra read-only admin-gated APIs for investigation.
-"volume_extension:services:index": "role:admin or role:ai_observer"
-"scheduler_extension:scheduler_stats:get_pools": "role:admin or role:ai_observer"
-"volume_extension:hosts": "role:admin or role:ai_observer"
-"volume_extension:capabilities": "role:admin or role:ai_observer"
+# Caracal defaults enforce_new_defaults=false, so deprecated permissive/owner
+# checks can otherwise bypass the newer member alias above. Pin project-resource
+# mutation policies explicitly to a role-aware member rule.
+"volume:create": "rule:xena_system_admin_or_project_member"
+"volume:create_from_image": "rule:xena_system_admin_or_project_member"
+"volume:multiattach": "rule:xena_system_admin_or_project_member"
+"volume:update": "rule:xena_system_admin_or_project_member"
+"volume:delete": "rule:xena_system_admin_or_project_member"
+"volume:create_snapshot": "rule:xena_system_admin_or_project_member"
+"volume:update_snapshot": "rule:xena_system_admin_or_project_member"
+"volume:delete_snapshot": "rule:xena_system_admin_or_project_member"
+"volume:update_snapshot_metadata": "rule:xena_system_admin_or_project_member"
+"volume:delete_snapshot_metadata": "rule:xena_system_admin_or_project_member"
+"volume:create_volume_metadata": "rule:xena_system_admin_or_project_member"
+"volume:update_volume_metadata": "rule:xena_system_admin_or_project_member"
+"volume:delete_volume_metadata": "rule:xena_system_admin_or_project_member"
+"volume:update_readonly_flag": "rule:xena_system_admin_or_project_member"
+"volume:create_transfer": "rule:xena_system_admin_or_project_member"
+"volume:accept_transfer": "rule:xena_system_admin_or_project_member"
+"volume:delete_transfer": "rule:xena_system_admin_or_project_member"
+"volume_extension:volume_actions:attach": "rule:xena_system_admin_or_project_member"
+"volume_extension:volume_actions:detach": "rule:xena_system_admin_or_project_member"
+"volume_extension:volume_actions:reserve": "rule:xena_system_admin_or_project_member"
+"volume_extension:volume_actions:unreserve": "rule:xena_system_admin_or_project_member"
+"volume_extension:volume_actions:upload_image": "rule:xena_system_admin_or_project_member"
+"volume:attachment_create": "rule:xena_system_admin_or_project_member"
+"volume:attachment_update": "rule:xena_system_admin_or_project_member"
+"volume:attachment_delete": "rule:xena_system_admin_or_project_member"
+"volume:attachment_complete": "rule:xena_system_admin_or_project_member"
+"volume:multiattach_bootable_volume": "rule:xena_system_admin_or_project_member"
+
+# Extra read-only admin-gated APIs for investigation. Service, pool, backend
+# capability, and QoS reads retain their defaults because Caracal enforces an
+# additional hard administrator-context check below policy authorization.
+# Caracal uses volume_extension:hosts for both GET and PUT. It cannot be
+# granted to ai_observer without also allowing host mutation.
+# Caracal also filters group specs from aggregate group-type representations;
+# use the separately policy-governed group_specs GET endpoints instead.
 "volume_extension:default_get": "role:admin or role:ai_observer"
 "volume_extension:default_get_all": "role:admin or role:ai_observer"
 "group:group_types_specs:get": "role:admin or role:ai_observer"
 "group:group_types_specs:get_all": "role:admin or role:ai_observer"
-"volume_extension:qos_specs_manage:get": "role:admin or role:ai_observer"
-"volume_extension:qos_specs_manage:get_all": "role:admin or role:ai_observer"
 "volume_extension:types_extra_specs:read_sensitive": "role:admin or role:ai_observer"
